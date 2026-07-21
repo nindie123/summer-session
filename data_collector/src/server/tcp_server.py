@@ -105,9 +105,18 @@ class TcpServer:
                 timeout=30.0,
             )
 
-            auth_info = parse_auth_message(auth_data)
-            device_id = auth_info.get("device_id", "")
-            patient_id = auth_info.get("patient_id", "")
+            try:
+                auth_info = parse_auth_message(auth_data)
+                if not isinstance(auth_info, dict):
+                    logger.warning("auth_invalid_format", extra={"peer": peer_addr, "data": str(auth_data[:50])})
+                    writer.close()
+                    return
+                device_id = auth_info.get("device_id", "")
+                patient_id = auth_info.get("patient_id", "")
+            except Exception as auth_err:
+                logger.warning("auth_parse_error", extra={"peer": peer_addr, "error": str(auth_err)})
+                writer.close()
+                return
 
             # 验证密钥
             if auth_info.get("secret") != SIMULATOR_SECRET:

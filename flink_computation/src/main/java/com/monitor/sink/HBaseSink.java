@@ -97,11 +97,11 @@ public class HBaseSink<T> extends RichSinkFunction<T> {
         byte[] row = rowKey(snapshot.getPatientId(), snapshot.getTimestamp());
         Put put = new Put(row);
 
-        // v 列族: 体征值
+        // v 列族: 体征值（存字符串，HBase shell 可直接显示）
         for (Map.Entry<String, PatientSnapshot.VitalSign> entry : snapshot.getVitals().entrySet()) {
             String param = entry.getKey();
             PatientSnapshot.VitalSign vs = entry.getValue();
-            put.addColumn(CF_V, Bytes.toBytes(param), Bytes.toBytes(vs.getValue()));
+            put.addColumn(CF_V, Bytes.toBytes(param), Bytes.toBytes(String.valueOf(vs.getValue())));
         }
 
         // d 列族: 设备列表、时间戳、质量
@@ -120,12 +120,12 @@ public class HBaseSink<T> extends RichSinkFunction<T> {
         byte[] row = rowKey(mews.getPatientId(), mews.getTimestamp());
         Put put = new Put(row);
 
-        put.addColumn(CF_M, Bytes.toBytes("totalScore"), Bytes.toBytes(mews.getTotalScore()));
+        put.addColumn(CF_M, Bytes.toBytes("totalScore"), Bytes.toBytes(String.valueOf(mews.getTotalScore())));
         put.addColumn(CF_M, Bytes.toBytes("riskLevel"), Bytes.toBytes(mews.getRiskLevel()));
 
         if (mews.getComponents() != null) {
             for (Map.Entry<String, Integer> entry : mews.getComponents().entrySet()) {
-                put.addColumn(CF_M, Bytes.toBytes(entry.getKey()), Bytes.toBytes(entry.getValue()));
+                put.addColumn(CF_M, Bytes.toBytes(entry.getKey()), Bytes.toBytes(String.valueOf(entry.getValue())));
             }
         }
 
@@ -139,7 +139,7 @@ public class HBaseSink<T> extends RichSinkFunction<T> {
 
         put.addColumn(CF_A, Bytes.toBytes("type"), Bytes.toBytes(alert.getType()));
         put.addColumn(CF_A, Bytes.toBytes("severity"), Bytes.toBytes(alert.getSeverity()));
-        put.addColumn(CF_A, Bytes.toBytes("mewsScore"), Bytes.toBytes(alert.getMewsScore()));
+        put.addColumn(CF_A, Bytes.toBytes("mewsScore"), Bytes.toBytes(String.valueOf(alert.getMewsScore())));
         put.addColumn(CF_A, Bytes.toBytes("riskLevel"), Bytes.toBytes(alert.getRiskLevel()));
         put.addColumn(CF_A, Bytes.toBytes("description"), Bytes.toBytes(alert.getDescription()));
         put.addColumn(CF_A, Bytes.toBytes("suggestedAction"),
@@ -151,7 +151,7 @@ public class HBaseSink<T> extends RichSinkFunction<T> {
         if (alert.getTrigger() != null && alert.getTrigger().getPrimary() != null) {
             var primary = alert.getTrigger().getPrimary();
             put.addColumn(CF_A, Bytes.toBytes("triggerParam"), Bytes.toBytes(primary.getParameter()));
-            put.addColumn(CF_A, Bytes.toBytes("triggerValue"), Bytes.toBytes(primary.getValue()));
+            put.addColumn(CF_A, Bytes.toBytes("triggerValue"), Bytes.toBytes(String.valueOf(primary.getValue())));
         }
 
         // 体征快照

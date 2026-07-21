@@ -1,42 +1,91 @@
-import struct
+#!/usr/bin/env python3
+"""Read HBase data with clean output"""
+import struct, sys, os
+os.environ["PYTHONIOENCODING"] = "utf-8"
 
-print("=" * 60)
-print("HBase vitals 表数据")
-print("=" * 60)
+try:
+    import happybase
+except ImportError:
+    print("Please install: pip install happybase")
+    sys.exit(1)
 
-# Row 1: P0001
-print("\n━ 患者 P0001 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print(f"  设备:     temp_001, monitor_001")
-print(f"  质量:     good")
-print(f"  时间:     2026-07-21T07:07:46.000+0000")
-print(f"  MEWS:     0/14 (STABLE)")
-print(f"  心率:     {struct.unpack('>d', bytes([0x40, 0x52, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))[0]:.0f} /min")
-print(f"  收缩压:   {struct.unpack('>d', bytes([0x40, 0x5E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))[0]:.0f} mmHg")
-print(f"  舒张压:   {struct.unpack('>d', bytes([0x40, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))[0]:.0f} mmHg")
-print(f"  血氧:     {struct.unpack('>d', bytes([0x40, 0x58, 0x13, 0x33, 0x33, 0x33, 0x33, 0x33]))[0]:.1f} %")
-print(f"  呼吸:     {struct.unpack('>d', bytes([0x40, 0x2C, 0x66, 0x66, 0x66, 0x66, 0x66, 0x66]))[0]:.1f} /min")
-print(f"  体温:     {struct.unpack('>d', bytes([0x40, 0x42, 0x4C, 0xCC, 0xCC, 0xCC, 0xCC, 0xCD]))[0]:.1f} °C")
+conn = happybase.Connection('localhost', 9090)
+conn.open()
 
-# Row 2: P0002
-print("\n━ 患者 P0002 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-print(f"  设备:     monitor_002")
-print(f"  质量:     good")
-print(f"  时间:     2026-07-21T07:07:46.000+0000")
-print(f"  MEWS:     2/14 (STABLE) [体温+2]")
-print(f"  心率:     {struct.unpack('>d', bytes([0x40, 0x52, 0xB3, 0x33, 0x33, 0x33, 0x33, 0x33]))[0]:.1f} /min")
-print(f"  收缩压:   {struct.unpack('>d', bytes([0x40, 0x5B, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00]))[0]:.1f} mmHg")
-print(f"  舒张压:   {struct.unpack('>d', bytes([0x40, 0x55, 0x73, 0x33, 0x33, 0x33, 0x33, 0x33]))[0]:.1f} mmHg")
-print(f"  血氧:     {struct.unpack('>d', bytes([0x40, 0x58, 0x19, 0x99, 0x99, 0x99, 0x9A, 0x00]))[0]:.1f} %")
-print(f"  呼吸:     {struct.unpack('>d', bytes([0x40, 0x32, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]))[0]:.0f} /min")
+def read_vitals():
+    print("=" * 80)
+    print("HBase vitals table - Patient Vitals + MEWS Score")
+    print("=" * 80)
 
-print("\n" + "=" * 60)
-print("✅ HBase 数据写入正常！共 2 条患者记录")
-print("=" * 60)
-print()
-print("AI 通过以下方式读取 HBase:")
-print("  pip install happybase")
-print("  import happybase")
-print("  conn = happybase.Connection('localhost', 9090)")
-print("  table = conn.table('vitals')")
-print("  for key, data in table.scan(row_prefix=b'P0001_', limit=5):")
-print("      print(data)")
+    table = conn.table('vitals')
+    count = 0
+    for key, data in table.scan():
+        pid = key.decode().split('_')[0]
+        info = {}
+
+        for k, v in data.items():
+            cf, col = k.decode().split(':')
+            try:
+                if cf == 'v':
+                    val = struct.unpack('>d', v)[0]
+                    info[col] = round(val, 1)
+                elif cf == 'm':
+                    if col in ('totalScore',):
+                        info['mewsScore'] = struct.unpack('>i', v)[0]
+                    elif col in ('heartRate', 'sysBP', 'respiratoryRate', 'temperature', 'avpu'):
+                        info['m_' + col] = struct.unpack('>i', v)[0]
+                    else:
+                        info[col] = v.decode()
+                elif cf == 'd':
+                    info[col] = v.decode()
+            except:
+                pass
+
+        hr = info.get('heartRate', '?')
+        sbp = info.get('sysBP', '?')
+        dbp = info.get('diaBP', '?')
+        spo2 = info.get('spo2', '?')
+        rr = info.get('respiratoryRate', '?')
+        temp = info.get('temperature', '?')
+        mews = info.get('mewsScore', info.get('totalScore', '?'))
+        risk = info.get('riskLevel', '?')
+
+        print(f"  Patient {pid:<6s}| HR={str(hr):>5s} BP={str(sbp):>5s}/{str(dbp):<5s} SpO2={str(spo2):>4s} RR={str(rr):>4s} T={str(temp):>4s} | MEWS={str(mews):>2s} {str(risk):<10s}")
+
+        count += 1
+        if count >= 50:
+            break
+
+    print(f"\n  Displayed {count} records")
+    print()
+
+def read_alerts():
+    print("=" * 80)
+    print("HBase alerts table - Alert Events")
+    print("=" * 80)
+
+    table = conn.table('alerts')
+    count = 0
+    for key, data in table.scan():
+        pid = key.decode().split('_')[0]
+        info = {}
+        for k, v in data.items():
+            cf, col = k.decode().split(':')
+            try:
+                info[col] = v.decode()
+            except:
+                info[col] = str(v)
+
+        sev = info.get('severity', '?')
+        desc = info.get('description', '?')[:50]
+        print(f"  {pid:<8s} | {str(sev):<10s} | {str(desc):<50s}")
+        count += 1
+        if count >= 20:
+            break
+
+    print(f"\n  Displayed {count} records")
+    print()
+
+read_vitals()
+read_alerts()
+conn.close()
