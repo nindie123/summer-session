@@ -1,0 +1,64 @@
+{
+  "collector": {
+    "host": "127.0.0.1",
+    "port": 9001,
+    "reconnect_interval_ms": 3000,
+    "max_reconnect_attempts": 5
+  },
+
+  "devices": [
+    {
+      "device_id": "monitor_001",
+      "device_type": "Monitor",
+      "patient_id": "P0001",
+      "interval_ms": 1000,
+      "params": {
+        "heart_rate": { "min": 60, "max": 100, "initial": 72 },
+        "sys_bp":     { "min": 100, "max": 140, "initial": 120 },
+        "dia_bp":     { "min": 60,  "max": 90,  "initial": 80  },
+        "spo2":       { "min": 95,  "max": 100, "initial": 98  },
+        "resp_rate":  { "min": 12,  "max": 20,  "initial": 16  }
+      }
+    },
+    {
+      "device_id": "monitor_002",
+      "device_type": "Monitor",
+      "patient_id": "P0002",
+      "interval_ms": 1000,
+      "params": {
+        "heart_rate": { "min": 65, "max": 105, "initial": 75 },
+        "sys_bp":     { "min": 105, "max": 145, "initial": 125 },
+        "dia_bp":     { "min": 65,  "max": 95,  "initial": 85  },
+        "spo2":       { "min": 94,  "max": 100, "initial": 97  },
+        "resp_rate":  { "min": 12,  "max": 22,  "initial": 18  }
+      }
+    },
+    {
+      "device_id": "temp_001",
+      "device_type": "TempSensor",
+      "patient_id": "P0001",
+      "interval_ms": 30000,
+      "params": {
+        "temperature": { "min": 36.0, "max": 37.5, "initial": 36.8 }
+      }
+    },
+    {
+      "device_id": "temp_002",
+      "device_type": "TempSensor",
+      "patient_id": "P0002",
+      "interval_ms": 30000,
+      "params": {
+        "temperature": { "min": 36.0, "max": 37.5, "initial": 36.6 }
+      }
+    }
+  ],
+
+  "anomalies": [
+    {
+      "device_id": "monitor_001",
+      "type": "hr_bradycardia",
+      "trigger_after_sec": 60,
+      "params": { "target_hr": 42, "duration_sec": 30 }
+    }
+  ]
+}
