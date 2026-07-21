@@ -1,0 +1,16 @@
+Metadata-Version: 2.4
+Name: data-collector
+Version: 1.0.0
+Summary: L2: 医院生命体征数据采集与标准化层
+Requires-Python: >=3.12
+Requires-Dist: aiokafka>=0.10.0
+Requires-Dist: orjson>=3.9.0
+Requires-Dist: prometheus-client>=0.19.0
+Requires-Dist: redis>=5.0.0
+Requires-Dist: jsonschema>=4.20.0
+Requires-Dist: structlog>=24.1.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.23; extra == "dev"
+Requires-Dist: ruff>=0.3.0; extra == "dev"
+Requires-Dist: pyright>=1.1.350; extra == "dev"
