@@ -102,36 +102,58 @@ services:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     restart: unless-stopped
 
-  # ── 设备模拟器 ──────────────────────────────────
+  # ── 设备模拟器（持续运行，自动重启） ───────────
   device-simulator:
-    build:
-      context: ..
-      dockerfile: docker/simulator.Dockerfile
+    image: docker-base:latest
     depends_on:
       collector:
         condition: service_started
     environment:
       COLLECTOR_HOST: collector
       COLLECTOR_PORT: 9001
-    restart: "no"
+      SIM_DURATION_SEC: "86400"
+    entrypoint: ["python3", "/app/run_8_patients.py"]
+    restart: unless-stopped
+
+  # ── 桥接器（Kafka→InfluxDB+HBase，自动重启） ──
+  bridge:
+    image: docker-base:latest
+    depends_on:
+      collector:
+        condition: service_started
+      kafka:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      hbase:
+        condition: service_started
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      INFLUXDB_URL: http://influxdb:8086
+      HBASE_THRIFT_HOST: hbase
+      HBASE_THRIFT_PORT: "9090"
+    entrypoint: ["python3", "/app/bridge_simple.py"]
+    restart: unless-stopped
 
   # ── HBase ──────────────────────────────────────────
   hbase:
-    image: harisekhon/hbase:2.0
+    image: registry.cn-hangzhou.aliyuncs.com/bigdata_cloudnative/hbase:2.5.4
     ports:
       - "16010:16010"  # Master Web UI
       - "9090:9090"    # Thrift API（AI 通过此端口读取）
     environment:
       HBASE_MANAGES_ZK: "true"
+      JAVA_HOME: /opt/apache/jdk1.8.0_212
+    command: sh -c "/opt/apache/hbase-2.5.4/bin/start-hbase.sh && sleep 5 && /opt/apache/hbase-2.5.4/bin/hbase-daemon.sh start thrift && tail -f /dev/null"
     healthcheck:
-      test: bash -c 'echo "list" | hbase shell -n 2>/dev/null | head -1 || exit 1'
-      interval: 20s
-      timeout: 15s
-      retries: 15
-      start_period: 60s
+      test: bash -c 'echo "list" | /opt/apache/hbase-2.5.4/bin/hbase shell -n 2>/dev/null | head -1 || exit 1'
+      interval: 30s
+      timeout: 20s
+      retries: 10
+      start_period: 120s
 
   hbase-init:
-    image: harisekhon/hbase:2.0
+    image: registry.cn-hangzhou.aliyuncs.com/bigdata_cloudnative/hbase:2.5.4
     depends_on:
       hbase:
         condition: service_healthy
@@ -142,7 +164,7 @@ services:
           create \"vitals\", {NAME=>\"v\", VERSIONS=>1, TTL=>2592000}, {NAME=>\"m\", VERSIONS=>1}, {NAME=>\"d\", VERSIONS=>1}
           create \"alerts\", {NAME=>\"a\", VERSIONS=>1, TTL=>7776000}
           list
-        ' | hbase shell -n
+        ' | /opt/apache/hbase-2.5.4/bin/hbase shell -n
         echo 'HBase tables created.'
       "
 

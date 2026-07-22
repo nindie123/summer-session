@@ -75,7 +75,8 @@ async def run():
     from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
     kafka_host = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
     consumer = AIOKafkaConsumer("standardized.vitals", bootstrap_servers=kafka_host,
-                                auto_offset_reset="latest")
+                                auto_offset_reset="latest",
+                                group_id=None)
     producer = AIOKafkaProducer(bootstrap_servers=kafka_host, acks=0)
     await consumer.start()
     await producer.start()
@@ -112,8 +113,9 @@ async def run():
             lines+=f" {ts_ns}\n"
 
             try:
-                r=requests.post(f"{INFLUX_URL}/api/v2/write?org={INFLUX_ORG}&bucket={INFLUX_BUCKET}&precision=ns",
-                    headers={"Authorization":f"Token {INFLUX_TOKEN}","Content-Type":"text/plain"},data=lines)
+                r=await asyncio.to_thread(lambda: requests.post(
+                    f"{INFLUX_URL}/api/v2/write?org={INFLUX_ORG}&bucket={INFLUX_BUCKET}&precision=ns",
+                    headers={"Authorization":f"Token {INFLUX_TOKEN}","Content-Type":"text/plain"},data=lines))
                 if r.status_code<300 and count<3:
                     hr=v.get("heartRate","?"); sbp=v.get("sysBP","?"); spo2=v.get("spo2","?")
                     print(f"  {pid}: MEWS={score} {risk} HR={hr} BP={sbp} SpO2={spo2}", flush=True)
@@ -150,4 +152,11 @@ async def run():
     await consumer.stop()
     await producer.stop()
 
-asyncio.run(run())
+while True:
+    try:
+        asyncio.run(run())
+    except Exception as e:
+        print(f"桥接器崩溃: {e}", flush=True)
+    import traceback; traceback.print_exc()
+    print("30秒后重启...", flush=True)
+    time.sleep(30)

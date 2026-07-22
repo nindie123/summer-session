@@ -3,158 +3,122 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>8患者体征监控（趋势图）</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<title>8患者体征实时监控</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:Arial,sans-serif;background:#f0f2f5;padding:16px}
-h1{text-align:center;font-size:18px;color:#333;margin-bottom:4px}
-.sub{text-align:center;font-size:12px;color:#999;margin-bottom:12px}
-.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:1400px;margin:0 auto}
-.card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
-.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-.pid{font-size:14px;font-weight:bold;color:#333}
-.scene{font-size:11px;color:#999}
-.mews-tag{font-size:11px;padding:2px 8px;border-radius:8px}
-.mews-tag.STABLE{background:#f6ffed;color:#52c41a;border:1px solid #b7eb8f}
-.mews-tag.WARNING{background:#fffbe6;color:#faad14;border:1px solid #ffe58f}
-.mews-tag.CRITICAL{background:#fff2f0;color:#ff4d4f;border:1px solid #ffa39e}
-.mews-tag.EMERGENCY{background:#ff4d4f;color:#fff;border:1px solid #ff4d4f}
-.chart-wrap{position:relative;height:120px}
-.legend{text-align:center;font-size:11px;color:#999;margin-top:10px}
-.legend span{margin:0 6px}
+body{font-family:Arial,sans-serif;background:#0d1117;padding:16px;color:#e6edf3}
+h1{text-align:center;font-size:16px;color:#e6edf3;margin-bottom:4px}
+.sub{text-align:center;font-size:11px;color:#8b949e;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;max-width:1500px;margin:0 auto}
+.card{background:#161b22;border-radius:8px;padding:10px;border:1px solid #30363d}
+.card.WARNING{border-color:#d29922;box-shadow:0 0 8px rgba(210,153,34,0.3)}
+.card.CRITICAL{border-color:#da3633;box-shadow:0 0 8px rgba(218,54,51,0.4)}
+.card.EMERGENCY{border-color:#da3633;box-shadow:0 0 12px rgba(218,54,51,0.6)}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.pid{font-size:13px;font-weight:bold;color:#e6edf3}
+.scene{font-size:10px;color:#8b949e}
+.mews{font-size:14px;font-weight:bold;margin:2px 0}
+.mews.safe{color:#3fb950}.mews.warn{color:#d29922}.mews.danger{color:#da3633}
+.tag{font-size:10px;padding:1px 6px;border-radius:6px;margin-left:4px}
+.tag.STABLE{background:#1a3a1a;color:#3fb950;border:1px solid #3fb950}
+.tag.WARNING{background:#3a2e1a;color:#d29922;border:1px solid #d29922}
+.tag.CRITICAL{background:#3a1a1a;color:#da3633;border:1px solid #da3633}
+.tag.EMERGENCY{background:#3a1a1a;color:#ff6b6b;border:1px solid #ff6b6b}
+.vitals{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin-top:6px}
+.item{text-align:center;padding:4px 2px;border-radius:4px;background:#0d1117}
+.item .val{font-size:15px;font-weight:bold;display:block}
+.item .lbl{font-size:9px;color:#8b949e;display:block;margin-top:1px}
+.item.hr .val{color:#ff7b72}
+.item.bp .val{color:#d29922}
+.item.spo2 .val{color:#3fb950}
+.item.rr .val{color:#58a6ff}
+.item.temp .val{color:#bc8cff}
+.time{font-size:9px;color:#484f58;margin-top:4px;text-align:right}
+.legend{text-align:center;font-size:11px;color:#8b949e;margin-bottom:10px}
+.legend span{margin:0 8px}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px}
-@media(max-width:800px){.grid{grid-template-columns:1fr}}
+@media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
-<h1>8 患者生命体征趋势</h1>
-<div class="sub">实时更新 | <span id="ts"></span></div>
+<h1>8 患者体征实时监控</h1>
+<div class="sub"><span id="ts"></span> &middot; 每5秒自动刷新</div>
 <div class="legend">
-  <span><span class="dot" style="background:#ff4d4f"></span>HR</span>
-  <span><span class="dot" style="background:#faad14"></span>SBP</span>
-  <span><span class="dot" style="background:#52c41a"></span>SpO2</span>
-  <span><span class="dot" style="background:#1890ff"></span>RR</span>
-  <span><span class="dot" style="background:#722ed1"></span>TEMP</span>
-  <span><button onclick="refreshAll()" style="margin-left:8px;padding:1px 8px;cursor:pointer;font-size:11px">刷新</button></span>
+  <span><span class="dot" style="background:#ff7b72"></span>HR 心率</span>
+  <span><span class="dot" style="background:#d29922"></span>BP 血压</span>
+  <span><span class="dot" style="background:#3fb950"></span>SpO2 血氧</span>
+  <span><span class="dot" style="background:#58a6ff"></span>RR 呼吸</span>
+  <span><span class="dot" style="background:#bc8cff"></span>TEMP 体温</span>
 </div>
-<div class="grid" id="grid"><div style="grid-column:1/-1;text-align:center;padding:40px;color:#999">加载中...</div></div>
+<div class="grid" id="grid"><div style="grid-column:1/-1;text-align:center;padding:40px;color:#484f58">加载中...</div></div>
 
 <script>
 const PATIENTS = [
-  {id:"P001",scene:"健康"},
-  {id:"P002",scene:"高血压"},
-  {id:"P003",scene:"心动过速"},
-  {id:"P004",scene:"心动过缓"},
-  {id:"P005",scene:"低血氧"},
-  {id:"P006",scene:"发热"},
-  {id:"P007",scene:"恶化"},
-  {id:"P008",scene:"重症"},
+  {id:"P001",scene:"健康"},{id:"P002",scene:"高血压"},{id:"P003",scene:"心动过速"},{id:"P004",scene:"心动过缓"},
+  {id:"P005",scene:"低血氧"},{id:"P006",scene:"发热"},{id:"P007",scene:"恶化"},{id:"P008",scene:"重症"},
 ];
 
-let charts = {};
-const MAX_POINTS = 30;
-const COLORS = {heartRate:"#ff4d4f",sysBP:"#faad14",diaBP:"#ffa940",spo2:"#52c41a",respiratoryRate:"#1890ff",temperature:"#722ed1"};
-
-function initChart(canvasId, label, color) {
-  const ctx = document.getElementById(canvasId).getContext('2d');
-  return new Chart(ctx, {
-    type: 'line',
-    data: { labels: [], datasets: [
-      {label:'HR',data:[],borderColor:COLORS.heartRate,backgroundColor:COLORS.heartRate+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3},
-      {label:'SBP',data:[],borderColor:COLORS.sysBP,backgroundColor:COLORS.sysBP+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y1'},
-      {label:'SpO2',data:[],borderColor:COLORS.spo2,backgroundColor:COLORS.spo2+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y2'},
-      {label:'RR',data:[],borderColor:COLORS.respiratoryRate,backgroundColor:COLORS.respiratoryRate+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y1'},
-      {label:'TEMP',data:[],borderColor:COLORS.temperature,backgroundColor:COLORS.temperature+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y3'},
-    ]},
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      animation: {duration: 300},
-      scales: {
-        x: {display:false},
-        y: {position:'left',grid:{drawOnChartArea:false},title:{display:false},min:0,max:200,ticks:{font:{size:8},stepSize:50}},
-        y1: {position:'right',grid:{drawOnChartArea:false},title:{display:false},min:0,max:60,ticks:{font:{size:8},stepSize:20}},
-        y2: {position:'right',grid:{drawOnChartArea:false},title:{display:false},min:70,max:105,ticks:{font:{size:8},stepSize:10}},
-        y3: {position:'right',grid:{drawOnChartArea:false},title:{display:false},min:34,max:42,ticks:{font:{size:8},stepSize:2}},
-      },
-      plugins: {legend:{display:false},tooltip:{enabled:false}}
-    }
-  });
-}
-
-async function refreshAll() {
-  document.getElementById('ts').textContent = new Date().toLocaleTimeString() + ' 更新';
-
-  for (const p of PATIENTS) {
-    // 获取体征历史
-    try {
-      const resp = await fetch(`/api/v1/patients/${p.id}/vitals?limit=30`);
-      const data = await resp.json();
-      if (data.code !== 200) continue;
-
-      const pts = data.data.points || [];
-      const labels = pts.map(v => {
-        const d = new Date(v.timestamp);
-        return d.getMinutes()+':'+String(d.getSeconds()).padStart(2,'0');
-      });
-
-      if (charts[p.id]) {
-        const c = charts[p.id];
-        c.data.labels = labels;
-        c.data.datasets[0].data = pts.map(v => v.heartRate ?? null);
-        c.data.datasets[1].data = pts.map(v => v.sysBP ?? null);
-        c.data.datasets[2].data = pts.map(v => v.spo2 ?? null);
-        c.data.datasets[3].data = pts.map(v => v.respiratoryRate ?? null);
-        c.data.datasets[4].data = pts.map(v => v.temperature !== undefined ? v.temperature : null);
-        c.update('none');
-      }
-    } catch(e) {}
-
-    // 获取最新 MEWS
-    try {
-      const resp = await fetch(`/api/v1/patients/${p.id}/mews?limit=1`);
-      const data = await resp.json();
-      if (data.code === 200 && data.data.points.length > 0) {
-        const m = data.data.points[data.data.points.length-1];
-        document.getElementById(`mews-${p.id}`).textContent = `MEWS ${m.totalScore}`;
-        const tag = document.getElementById(`tag-${p.id}`);
-        tag.textContent = m.riskLevel;
-        tag.className = 'mews-tag ' + m.riskLevel;
-      }
-    } catch(e) {}
-  }
-}
-
-function buildGrid() {
+async function refresh() {
+  document.getElementById('ts').textContent = '更新时间: ' + new Date().toLocaleTimeString();
   const grid = document.getElementById('grid');
-  grid.innerHTML = '';
+  let html = '';
+
   for (const p of PATIENTS) {
-    const div = document.createElement('div');
-    div.className = 'card';
-    div.innerHTML = `
-      <div class="card-header">
+    // 取最新体征
+    let hr='--', sbp='--', dbp='--', spo2='--', rr='--', temp='--';
+    let mews='?', risk='--', ts='';
+    try {
+      const r = await fetch(`/api/v1/patients/${p.id}/vitals?limit=10`);
+      const d = await r.json();
+      if (d.code===200 && d.data.points.length>0) {
+        // 按时间正序遍历（旧的在前新的在后），只取每个参数第一次出现的值（即最新值）
+        const pts = d.data.points.reverse(); // 改为从旧到新遍历
+        for (const pt of pts) {
+          if (pt.heartRate !== undefined && hr === '--') hr = pt.heartRate;
+          if (pt.sysBP !== undefined && sbp === '--') { sbp = pt.sysBP; dbp = pt.diaBP ?? dbp; }
+          if (pt.spo2 !== undefined && spo2 === '--') spo2 = pt.spo2;
+          if (pt.respiratoryRate !== undefined && rr === '--') rr = pt.respiratoryRate;
+          if (pt.temperature !== undefined && temp === '--') temp = pt.temperature;
+          if (pt.timestamp) ts = pt.timestamp;
+        }
+      }
+    } catch(e){}
+
+    // 取最新MEWS
+    try {
+      const r = await fetch(`/api/v1/patients/${p.id}/mews?limit=1`);
+      const d = await r.json();
+      if (d.code===200 && d.data.points.length>0) {
+        const m = d.data.points[d.data.points.length-1];
+        mews = m.totalScore; risk = m.riskLevel;
+      }
+    } catch(e){}
+
+    const cls = risk==='CRITICAL'||risk==='EMERGENCY'?'CRITICAL':risk==='WARNING'?'WARNING':'';
+    const ms = mews>=6?'danger':mews>=4?'warn':'safe';
+    const tsStr = ts ? new Date(ts).toLocaleTimeString() : '--';
+
+    html += `<div class="card ${cls}">
+      <div class="header">
         <div><span class="pid">${p.id}</span> <span class="scene">${p.scene}</span></div>
-        <div>
-          <span class="mews-tag STABLE" id="tag-${p.id}">--</span>
-          <span style="font-size:12px;font-weight:bold;margin-left:6px" id="mews-${p.id}">MEWS --</span>
-        </div>
+        <div><span class="mews ${ms}">MEWS ${mews}</span><span class="tag ${risk}">${risk}</span></div>
       </div>
-      <div class="chart-wrap"><canvas id="chart-${p.id}"></canvas></div>
-    `;
-    grid.appendChild(div);
-
-    // 初始化图表
-    setTimeout(() => {
-      charts[p.id] = initChart('chart-'+p.id);
-    }, 100);
+      <div class="vitals">
+        <div class="item hr"><span class="val">${hr}</span><span class="lbl">/min</span></div>
+        <div class="item bp"><span class="val">${sbp}${sbp!=='--'?'/'.concat(dbp):''}</span><span class="lbl">mmHg</span></div>
+        <div class="item spo2"><span class="val">${spo2}</span><span class="lbl">%</span></div>
+        <div class="item rr"><span class="val">${rr}</span><span class="lbl">/min</span></div>
+        <div class="item temp"><span class="val">${temp}</span><span class="lbl">°C</span></div>
+      </div>
+      <div class="time">${tsStr}</div>
+    </div>`;
   }
-
-  // 首次刷新
-  setTimeout(refreshAll, 500);
-  setInterval(refreshAll, 5000);
+  grid.innerHTML = html;
 }
 
-buildGrid();
+refresh();
+setInterval(refresh, 5000);
 </script>
 </body>
 </html>

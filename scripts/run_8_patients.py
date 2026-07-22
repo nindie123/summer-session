@@ -111,11 +111,13 @@ def gen_vital(patient, param, prev, elapsed):
     return round(max(lo, min(hi, val)), 1)
 
 
-async def device_loop(patient, device_type, interval, running_flag):
-    host = "127.0.0.1"
-    port = 9001
+async def device_loop(patient, device_type, interval, running_flag, param_list=None):
+    host = os.environ.get("COLLECTOR_HOST", "127.0.0.1")
+    port = int(os.environ.get("COLLECTOR_PORT", "9001"))
     pid_num = patient["pid"]
-    device_id = f"{'mon' if device_type=='Monitor' else 'tmp'}_{pid_num}"
+    device_id = f"{device_type[:3].lower()}_{pid_num}"
+    if param_list is None:
+        param_list = ["hr","sbp","dbp","spo2","rr"]
 
     for attempt in range(10):
         try:
@@ -134,7 +136,6 @@ async def device_loop(patient, device_type, interval, running_flag):
 
     seq = 0
     values = {}
-    param_list = ["hr","sbp","dbp","spo2","rr"] if device_type == "Monitor" else ["temp"]
     start_ts = time.time()
 
     try:
@@ -171,13 +172,22 @@ async def main():
         print(f"    {p['pid']} {p['scene']:<15s} 周期≈{ex['period']}s 振幅≈{ex['amplitude']*100:.0f}% 趋势={ex['drift']}")
     print()
 
+    # 5 种设备类型：各管一种体征，频率不同
+    DEVICE_TYPES = [
+        ("HeartRate",      1000, ["hr"]),        # 1秒/次
+        ("BloodPressure",  5000, ["sbp","dbp"]), # 5秒/次
+        ("SpO2Monitor",    2000, ["spo2"]),      # 2秒/次
+        ("Respiratory",    3000, ["rr"]),        # 3秒/次
+        ("Temperature",   30000, ["temp"]),      # 30秒/次
+    ]
+
     running_flag = {"running": True}
     tasks = []
     for p in PATIENTS:
-        tasks.append(device_loop(p, "Monitor", 1000, running_flag))
-        tasks.append(device_loop(p, "TempSensor", 30000, running_flag))
+        for dev_name, interval, params in DEVICE_TYPES:
+            tasks.append(device_loop(p, dev_name, interval, running_flag, params))
 
-    print(f"  共 {len(PATIENTS)} 患者 × 2 设备 = {len(tasks)} 连接，数据持续发送中...\n")
+    print(f"  共 {len(PATIENTS)} 患者 × 5 设备 = {len(tasks)} 连接，数据持续发送中...\n")
 
     try:
         await asyncio.gather(*tasks)

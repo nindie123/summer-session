@@ -1,9 +1,9 @@
 # 医院实时生命体征监护系统 — 系统架构设计
 
-> 版本：v1.1  
+> 版本：v1.2  
 > 设计范围：L1 (设备模拟器) → L2 (数据采集层) → L3 (实时计算层)  
 > 接口输出：L4 (LLM Agent) 消费接口契约  
-> 当前状态：L3 实时计算由 bridge.py (Python) 替代 Flink 运行中，Flink 代码已写但待重建 jar  
+> 当前状态：L3 实时计算由 bridge.py (Python) 替代 Flink、**全容器化运行、自动守护**  
 
 ---
 
@@ -31,6 +31,13 @@
 1. **Docker 网络不稳定**（2026-07 国内镜像源大面积故障），Flink jar 无法重建
 2. **Session Window 不触发**（原始 Flink 代码用了 session window，gap=2s 被持续数据重置）
 3. **bridge.py 更快迭代**（50 行 Python vs 编译-部署-Flink 作业流程）
+
+### 2026-07-22 更新：全容器化 + 自动守护
+
+- **device-simulator** 和 **bridge** 均已做成 Docker 容器，`restart: unless-stopped`
+- **HBase** 升级到 2.5.4（阿里云镜像），解决旧镜像 Region Server 频繁崩溃问题
+- 桥接器 HBase 写入失败时自动重置连接，不会整个进程退出
+- API 网关已内置 `/test` 仪表盘路由
 
 > 后续 Docker Hub 网络恢复后，可重建 Flink jar 切换回 Flink 运行，bridge.py 作为备用。
 > Flink 代码在 `flink_computation/` 目录下完整保留。
