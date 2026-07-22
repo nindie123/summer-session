@@ -1,8 +1,39 @@
 # 医院实时生命体征监护系统 — 系统架构设计
 
-> 版本：v1.0  
+> 版本：v1.1  
 > 设计范围：L1 (设备模拟器) → L2 (数据采集层) → L3 (实时计算层)  
 > 接口输出：L4 (LLM Agent) 消费接口契约  
+> 当前状态：L3 实时计算由 bridge.py (Python) 替代 Flink 运行中，Flink 代码已写但待重建 jar  
+
+---
+
+## 当前架构实况（v1.1 实际部署）
+
+```
+                           ┌→ InfluxDB ─→ API(:8000) ─→ 仪表盘(/test)
+                           │
+设备模拟器 ──TCP:9001──→ 采集层 ──Kafka──→ bridge.py ──┼→ HBase (字符串可读格式)
+   8患者 · 动态数据                      MEWS计算       │
+   8种临床场景                           写入三路      └→ Kafka: ai.diagnostic.input ──→ L4 AI
+```
+
+### 与原始架构的偏差
+
+| 项目 | 原始设计 | 当前实现 |
+|------|---------|---------|
+| **实时计算** | Flink (Java) | bridge.py (Python) |
+| **HBase 写入** | Flink HBaseSink | bridge.py happybase |
+| **告警产出** | Flink AlertExtractor | bridge.py → Kafka |
+| **数据趋势** | Flink TrendAnalyzer | bridge.py 内联计算 |
+
+### 偏差原因
+
+1. **Docker 网络不稳定**（2026-07 国内镜像源大面积故障），Flink jar 无法重建
+2. **Session Window 不触发**（原始 Flink 代码用了 session window，gap=2s 被持续数据重置）
+3. **bridge.py 更快迭代**（50 行 Python vs 编译-部署-Flink 作业流程）
+
+> 后续 Docker Hub 网络恢复后，可重建 Flink jar 切换回 Flink 运行，bridge.py 作为备用。
+> Flink 代码在 `flink_computation/` 目录下完整保留。
 
 ---
 

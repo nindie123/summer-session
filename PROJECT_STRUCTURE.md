@@ -13,19 +13,34 @@ summer_all1/
 ├── PROJECT_STRUCTURE.md           # 本文件 — 目录说明
 ├── README.md                      # 项目介绍 + 快速开始
 
-├── docs/                          # 各层详细设计文档
-│   ├── layer1-device-simulator.md # 设备模拟器设计
-│   ├── layer2-data-collection.md  # 数据采集层设计
-│   ├── layer3-flink-computation.md# Flink 计算层设计
-│   └── layer4-interface-contract.md # L4 接口契约（可选展开版）
+├── docs/
+│   ├── hbase-design.md            # HBase 表结构设计
+│   ├── layer4-interface-contract.md # L4 接口契约
+│   └── layer1-device-simulator.md # 设备模拟器设计（参考）
 
-├── device_simulator/              # L1: C++ 设备模拟器
+├── device_simulator/              # L1: C++ 设备模拟器（待编译）
 ├── data_collector/                # L2: Python 数据采集层
-├── flink_computation/             # L3: Java Flink 计算层
-├── api_gateway/                   # L3附属: Python REST 查询服务
+├── flink_computation/             # L3: Java Flink 计算层（待重建jar）
+├── api_gateway/                   # REST API 查询服务
 
-├── docker/                        # Docker 编排文件
-├── scripts/                       # 开发/部署脚本
+├── scripts/                       # 核心运行脚本
+│   ├── run_8_patients.py          # ★ 8 患者动态数据模拟器
+│   ├── bridge.py                  # ★ Kafka→InfluxDB+HBase 桥接器
+│   ├── test_dashboard.html        # 趋势折线图仪表盘
+│   ├── read_hbase.py              # HBase 数据可读查看
+│   ├── read_hbase.bat             # HBase 查看（双击）
+│   ├── run_50_patients.py         # 50 患者模拟器（旧）
+│   ├── start.bat / stop.bat       # 一键启停
+│   └── submit-flink.ps1           # Flink 提交脚本
+
+├── docker/
+│   ├── docker-compose.yml         # 全部服务编排
+│   ├── collector.Dockerfile
+│   ├── api-gateway.Dockerfile
+│   ├── simulator.Dockerfile
+│   ├── flink.Dockerfile
+│   └── hbase.Dockerfile           # HBase 2.5.6 构建（待网络恢复）
+
 └── .claude/                       # Claude Code 项目配置
 ```
 

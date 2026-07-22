@@ -59,6 +59,7 @@ class InfluxQueryClient:
             |> filter(fn: (r) => r["patientId"] == "{patient_id}")
             {param_filter}
             |> pivot(rowKey: ["_time"], columnKey: ["parameter"], valueColumn: "_value")
+            |> sort(desc: true, columns: ["_time"])
             |> limit(n: {limit})
         '''
 
@@ -99,6 +100,7 @@ class InfluxQueryClient:
             |> filter(fn: (r) => r["_measurement"] == "mews")
             |> filter(fn: (r) => r["patientId"] == "{patient_id}")
             |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+            |> sort(desc: true, columns: ["_time"])
             |> limit(n: {limit})
         '''
 

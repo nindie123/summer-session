@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>8患者体征监控（趋势图）</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:Arial,sans-serif;background:#f0f2f5;padding:16px}
+h1{text-align:center;font-size:18px;color:#333;margin-bottom:4px}
+.sub{text-align:center;font-size:12px;color:#999;margin-bottom:12px}
+.grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;max-width:1400px;margin:0 auto}
+.card{background:#fff;border-radius:10px;padding:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06)}
+.card-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.pid{font-size:14px;font-weight:bold;color:#333}
+.scene{font-size:11px;color:#999}
+.mews-tag{font-size:11px;padding:2px 8px;border-radius:8px}
+.mews-tag.STABLE{background:#f6ffed;color:#52c41a;border:1px solid #b7eb8f}
+.mews-tag.WARNING{background:#fffbe6;color:#faad14;border:1px solid #ffe58f}
+.mews-tag.CRITICAL{background:#fff2f0;color:#ff4d4f;border:1px solid #ffa39e}
+.mews-tag.EMERGENCY{background:#ff4d4f;color:#fff;border:1px solid #ff4d4f}
+.chart-wrap{position:relative;height:120px}
+.legend{text-align:center;font-size:11px;color:#999;margin-top:10px}
+.legend span{margin:0 6px}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:2px}
+@media(max-width:800px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<h1>8 患者生命体征趋势</h1>
+<div class="sub">实时更新 | <span id="ts"></span></div>
+<div class="legend">
+  <span><span class="dot" style="background:#ff4d4f"></span>HR</span>
+  <span><span class="dot" style="background:#faad14"></span>SBP</span>
+  <span><span class="dot" style="background:#52c41a"></span>SpO2</span>
+  <span><span class="dot" style="background:#1890ff"></span>RR</span>
+  <span><span class="dot" style="background:#722ed1"></span>TEMP</span>
+  <span><button onclick="refreshAll()" style="margin-left:8px;padding:1px 8px;cursor:pointer;font-size:11px">刷新</button></span>
+</div>
+<div class="grid" id="grid"><div style="grid-column:1/-1;text-align:center;padding:40px;color:#999">加载中...</div></div>
+
+<script>
+const PATIENTS = [
+  {id:"P001",scene:"健康"},
+  {id:"P002",scene:"高血压"},
+  {id:"P003",scene:"心动过速"},
+  {id:"P004",scene:"心动过缓"},
+  {id:"P005",scene:"低血氧"},
+  {id:"P006",scene:"发热"},
+  {id:"P007",scene:"恶化"},
+  {id:"P008",scene:"重症"},
+];
+
+let charts = {};
+const MAX_POINTS = 30;
+const COLORS = {heartRate:"#ff4d4f",sysBP:"#faad14",diaBP:"#ffa940",spo2:"#52c41a",respiratoryRate:"#1890ff",temperature:"#722ed1"};
+
+function initChart(canvasId, label, color) {
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  return new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      {label:'HR',data:[],borderColor:COLORS.heartRate,backgroundColor:COLORS.heartRate+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3},
+      {label:'SBP',data:[],borderColor:COLORS.sysBP,backgroundColor:COLORS.sysBP+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y1'},
+      {label:'SpO2',data:[],borderColor:COLORS.spo2,backgroundColor:COLORS.spo2+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y2'},
+      {label:'RR',data:[],borderColor:COLORS.respiratoryRate,backgroundColor:COLORS.respiratoryRate+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y1'},
+      {label:'TEMP',data:[],borderColor:COLORS.temperature,backgroundColor:COLORS.temperature+'33',borderWidth:1.5,pointRadius:1,fill:false,tension:0.3,yAxisID:'y3'},
+    ]},
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      animation: {duration: 300},
+      scales: {
+        x: {display:false},
+        y: {position:'left',grid:{drawOnChartArea:false},title:{display:false},min:0,max:200,ticks:{font:{size:8},stepSize:50}},
+        y1: {position:'right',grid:{drawOnChartArea:false},title:{display:false},min:0,max:60,ticks:{font:{size:8},stepSize:20}},
+        y2: {position:'right',grid:{drawOnChartArea:false},title:{display:false},min:70,max:105,ticks:{font:{size:8},stepSize:10}},
+        y3: {position:'right',grid:{drawOnChartArea:false},title:{display:false},min:34,max:42,ticks:{font:{size:8},stepSize:2}},
+      },
+      plugins: {legend:{display:false},tooltip:{enabled:false}}
+    }
+  });
+}
+
+async function refreshAll() {
+  document.getElementById('ts').textContent = new Date().toLocaleTimeString() + ' 更新';
+
+  for (const p of PATIENTS) {
+    // 获取体征历史
+    try {
+      const resp = await fetch(`/api/v1/patients/${p.id}/vitals?limit=30`);
+      const data = await resp.json();
+      if (data.code !== 200) continue;
+
+      const pts = data.data.points || [];
+      const labels = pts.map(v => {
+        const d = new Date(v.timestamp);
+        return d.getMinutes()+':'+String(d.getSeconds()).padStart(2,'0');
+      });
+
+      if (charts[p.id]) {
+        const c = charts[p.id];
+        c.data.labels = labels;
+        c.data.datasets[0].data = pts.map(v => v.heartRate ?? null);
+        c.data.datasets[1].data = pts.map(v => v.sysBP ?? null);
+        c.data.datasets[2].data = pts.map(v => v.spo2 ?? null);
+        c.data.datasets[3].data = pts.map(v => v.respiratoryRate ?? null);
+        c.data.datasets[4].data = pts.map(v => v.temperature !== undefined ? v.temperature : null);
+        c.update('none');
+      }
+    } catch(e) {}
+
+    // 获取最新 MEWS
+    try {
+      const resp = await fetch(`/api/v1/patients/${p.id}/mews?limit=1`);
+      const data = await resp.json();
+      if (data.code === 200 && data.data.points.length > 0) {
+        const m = data.data.points[data.data.points.length-1];
+        document.getElementById(`mews-${p.id}`).textContent = `MEWS ${m.totalScore}`;
+        const tag = document.getElementById(`tag-${p.id}`);
+        tag.textContent = m.riskLevel;
+        tag.className = 'mews-tag ' + m.riskLevel;
+      }
+    } catch(e) {}
+  }
+}
+
+function buildGrid() {
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  for (const p of PATIENTS) {
+    const div = document.createElement('div');
+    div.className = 'card';
+    div.innerHTML = `
+      <div class="card-header">
+        <div><span class="pid">${p.id}</span> <span class="scene">${p.scene}</span></div>
+        <div>
+          <span class="mews-tag STABLE" id="tag-${p.id}">--</span>
+          <span style="font-size:12px;font-weight:bold;margin-left:6px" id="mews-${p.id}">MEWS --</span>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-${p.id}"></canvas></div>
+    `;
+    grid.appendChild(div);
+
+    // 初始化图表
+    setTimeout(() => {
+      charts[p.id] = initChart('chart-'+p.id);
+    }, 100);
+  }
+
+  // 首次刷新
+  setTimeout(refreshAll, 500);
+  setInterval(refreshAll, 5000);
+}
+
+buildGrid();
+</script>
+</body>
+</html>

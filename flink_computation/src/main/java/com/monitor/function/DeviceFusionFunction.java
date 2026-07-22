@@ -2,89 +2,53 @@ package com.monitor.function;
 
 import com.monitor.model.PatientSnapshot;
 import com.monitor.model.PatientVitalRecord;
-import org.apache.flink.streaming.api.functions.windowing.ProcessWindowFunction;
-import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
+import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.util.Collector;
 
+import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
- * 多设备融合函数 — 将同一患者同一时间窗口内多个设备的消息融合为 PatientSnapshot。
- *
- * 融合策略:
- *   - 同一参数多次出现，取时间戳最新的
- *   - 缺值容忍（允许某些参数缺失）
+ * 设备融合 — 直接将 PatientVitalRecord 转为 PatientSnapshot。
  */
-public class DeviceFusionFunction
-    extends ProcessWindowFunction<
-        PatientVitalRecord, PatientSnapshot, String, TimeWindow> {
+public class DeviceFusionFunction implements FlatMapFunction<PatientVitalRecord, PatientSnapshot> {
 
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 4L;
 
     @Override
-    public void process(
-            String patientId,
-            Context context,
-            Iterable<PatientVitalRecord> records,
-            Collector<PatientSnapshot> out) {
+    public void flatMap(PatientVitalRecord record, Collector<PatientSnapshot> out) {
+        Map<String, PatientSnapshot.VitalSign> vitals = new HashMap<>();
 
-        // 参数名 → VitalSign（取最新值）
-        Map<String, PatientSnapshot.VitalSign> vitalsMap = new HashMap<>();
-        Set<String> activeDevices = new HashSet<>();
-
-        for (PatientVitalRecord record : records) {
-            if (record.getSource() != null) {
-                activeDevices.add(record.getSource().getDeviceId());
-            }
-
-            if (record.getObservations() == null) continue;
-
+        if (record.getObservations() != null) {
             for (PatientVitalRecord.Observation obs : record.getObservations()) {
                 String paramName = mapLoincToParam(obs.getLoincCode());
                 if (paramName == null) continue;
 
-                // 用 LOINC code 映射后的参数名作为 key
-                PatientSnapshot.VitalSign current = vitalsMap.get(paramName);
-                if (current == null || obs.getEffectiveTimestamp().compareTo(current.getTimestamp()) > 0) {
-                    vitalsMap.put(paramName, PatientSnapshot.VitalSign.builder()
-                        .value(obs.getValue())
-                        .unit(obs.getUnit())
-                        .deviceId(record.getSource() != null ? record.getSource().getDeviceId() : "")
-                        .timestamp(obs.getEffectiveTimestamp())
-                        .build());
-                }
+                vitals.put(paramName, PatientSnapshot.VitalSign.builder()
+                    .value(obs.getValue())
+                    .unit(obs.getUnit())
+                    .deviceId(record.getSource() != null ? record.getSource().getDeviceId() : "")
+                    .timestamp(obs.getEffectiveTimestamp())
+                    .build());
             }
         }
 
-        // 数据质量判断
-        boolean hasPoorQuality = false;
-        for (PatientVitalRecord record : records) {
-            if (record.getProcessing() != null
-                && record.getProcessing().getDataQuality() != null
-                && record.getProcessing().getDataQuality().isSignalLost()) {
-                hasPoorQuality = true;
-                break;
-            }
+        List<String> devices = new ArrayList<>();
+        if (record.getSource() != null) {
+            devices.add(record.getSource().getDeviceId());
         }
-
-        String timestamp = context.window().getEnd() + "000"; // ms → ISO format approx
 
         PatientSnapshot snapshot = PatientSnapshot.builder()
-            .patientId(patientId)
-            .timestamp(new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.'000'Z")
-                .format(new Date(context.window().getEnd())))
-            .vitals(vitalsMap)
-            .activeDevices(new ArrayList<>(activeDevices))
-            .dataQuality(hasPoorQuality ? "poor" : "good")
+            .patientId(record.getPatient() != null ? record.getPatient().getPatientId() : "unknown")
+            .timestamp(new SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.'000Z'").format(new Date()))
+            .vitals(vitals)
+            .activeDevices(devices)
+            .dataQuality("good")
             .build();
 
         out.collect(snapshot);
     }
 
-    /**
-     * LOINC 编码 → 内部参数名。
-     */
     private static String mapLoincToParam(String loincCode) {
         if (loincCode == null) return null;
         return switch (loincCode) {

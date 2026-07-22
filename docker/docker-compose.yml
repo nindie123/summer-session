@@ -13,7 +13,7 @@ services:
       retries: 5
 
   kafka:
-    image: confluentinc/cp-kafka:7.6.0
+    image: confluentinc/cp-kafka:7.5.0
     depends_on:
       zookeeper:
         condition: service_started
@@ -39,7 +39,7 @@ services:
       start_period: 20s
 
   kafka-init:
-    image: confluentinc/cp-kafka:7.6.0
+    image: confluentinc/cp-kafka:7.5.0
     depends_on:
       kafka:
         condition: service_healthy
@@ -123,8 +123,6 @@ services:
       - "9090:9090"    # Thrift API（AI 通过此端口读取）
     environment:
       HBASE_MANAGES_ZK: "true"
-      # 让 ZK 监听所有网卡，其他容器才能连
-      HBASE_OPTS: "-Dzookeeper.requireClientSasl=false"
     healthcheck:
       test: bash -c 'echo "list" | hbase shell -n 2>/dev/null | head -1 || exit 1'
       interval: 20s
@@ -139,8 +137,6 @@ services:
         condition: service_healthy
     entrypoint: >
       bash -c "
-        echo 'Waiting for HBase...'
-        sleep 3
         echo 'Creating tables...'
         echo '
           create \"vitals\", {NAME=>\"v\", VERSIONS=>1, TTL=>2592000}, {NAME=>\"m\", VERSIONS=>1}, {NAME=>\"d\", VERSIONS=>1}

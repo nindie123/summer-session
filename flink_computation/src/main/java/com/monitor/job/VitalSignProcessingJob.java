@@ -20,7 +20,6 @@ import org.apache.flink.connector.kafka.source.enumerator.initializer.OffsetsIni
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.windowing.assigners.ProcessingTimeSessionWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.util.Collector;
 
@@ -67,8 +66,7 @@ public class VitalSignProcessingJob {
         // Pipeline
         DataStream<PatientSnapshot> snapshotStream = sourceStream
             .keyBy(record -> record.getPatient() != null ? record.getPatient().getPatientId() : "unknown")
-            .window(ProcessingTimeSessionWindows.withGap(Time.seconds(2)))
-            .process(new DeviceFusionFunction())
+            .flatMap(new DeviceFusionFunction())
             .name("DeviceFusion")
             .uid("device-fusion");
 
