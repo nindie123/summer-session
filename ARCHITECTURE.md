@@ -1,46 +1,40 @@
 # 医院实时生命体征监护系统 — 系统架构设计
 
-> 版本：v1.2  
-> 设计范围：L1 (设备模拟器) → L2 (数据采集层) → L3 (实时计算层)  
+> 版本：**v1.3**  
+> 设计范围：L1 (设备模拟器) → L2 (数据采集层) → L3 (Flink 实时计算) → L4 (LLM Agent)  
 > 接口输出：L4 (LLM Agent) 消费接口契约  
-> 当前状态：L3 实时计算由 bridge.py (Python) 替代 Flink、**全容器化运行、自动守护**  
+> **当前状态：Flink 已成功部署运行，bridge.py 已下线**
 
 ---
 
-## 当前架构实况（v1.1 实际部署）
+## 当前架构实况（v1.3 实际部署）
 
 ```
-                           ┌→ InfluxDB ─→ API(:8000) ─→ 仪表盘(/test)
-                           │
-设备模拟器 ──TCP:9001──→ 采集层 ──Kafka──→ bridge.py ──┼→ HBase (字符串可读格式)
-   8患者 · 动态数据                      MEWS计算       │
-   8种临床场景                           写入三路      └→ Kafka: ai.diagnostic.input ──→ L4 AI
+                           ┌→ InfluxDB ─→ API(:8000) ─→ 大屏(/bigscreen)
+                           │                              仪表盘(/test)
+设备模拟器 ──TCP:9001──→ 采集层 ──Kafka──→ Flink ─────────┼→ HBase (字符串可读格式)
+   8患者 · 动态数据          asyncio管道     MEWS计算     │   
+   8种临床场景               解析/验证      趋势/风险     └→ Kafka: ai.diagnostic.input
+                                          告警去重        → ai.alerts
 ```
 
-### 与原始架构的偏差
+### v1.3 更新（2026-07-23）：Flink 部署成功
 
-| 项目 | 原始设计 | 当前实现 |
-|------|---------|---------|
-| **实时计算** | Flink (Java) | bridge.py (Python) |
-| **HBase 写入** | Flink HBaseSink | bridge.py happybase |
-| **告警产出** | Flink AlertExtractor | bridge.py → Kafka |
-| **数据趋势** | Flink TrendAnalyzer | bridge.py 内联计算 |
+- **Flink 作业 VitalSignProcessingJob 已成功部署并运行**，全部算子状态 RUNNING
+- 数据流：模拟器 → 采集层 → Kafka → **Flink**（计算 MEWS + 趋势 + 风险）→ InfluxDB + HBase + Kafka
+- **bridge.py 已停用**，Flink 独立接管全部数据处理
+- 修复了 CRLF 换行导致容器启动失败、HBase ZooKeeper 绑定地址、HBase 表重建等问题
+- 新增大屏可视化（bigscreen）模块：WebSocket 实时推送 + REST 聚合接口 + 暗色主题 Demo
+- InfluxDB 查询适配 Flink 写入格式（`last() + group() + pivot`）
 
-### 偏差原因
+### 架构演变历史
 
-1. **Docker 网络不稳定**（2026-07 国内镜像源大面积故障），Flink jar 无法重建
-2. **Session Window 不触发**（原始 Flink 代码用了 session window，gap=2s 被持续数据重置）
-3. **bridge.py 更快迭代**（50 行 Python vs 编译-部署-Flink 作业流程）
-
-### 2026-07-22 更新：全容器化 + 自动守护
-
-- **device-simulator** 和 **bridge** 均已做成 Docker 容器，`restart: unless-stopped`
-- **HBase** 升级到 2.5.4（阿里云镜像），解决旧镜像 Region Server 频繁崩溃问题
-- 桥接器 HBase 写入失败时自动重置连接，不会整个进程退出
-- API 网关已内置 `/test` 仪表盘路由
-
-> 后续 Docker Hub 网络恢复后，可重建 Flink jar 切换回 Flink 运行，bridge.py 作为备用。
-> Flink 代码在 `flink_computation/` 目录下完整保留。
+| 版本 | 日期 | 实时计算 | 说明 |
+|------|------|---------|------|
+| v1.0 | 2026-07 前 | 设计为 Flink | 原始架构设计 |
+| v1.1 | 2026-07 中 | bridge.py | Docker 网络故障，Flink 无法部署 |
+| v1.2 | 2026-07-22 | bridge.py | 全容器化 + 自动守护 |
+| **v1.3** | **2026-07-23** | **Flink ✅** | **Flink 修复并成功部署，bridge.py 下线** |
 
 ---
 
@@ -80,7 +74,7 @@
 │  └─────────────────────┼────────────────────────────────────────┘ │
 ├────────────────────────┼──────────────────────────────────────────┤
 │  ┌─────────────────────▼────────────────────────────────────────┐ │
-│  │          L3: Flink 实时计算层 ★ (本项目职责)                   │ │
+│  │          L3: Flink 实时计算层 ★ (本项目职责，已部署运行)       │ │
 │  │                                                                 │ │
 │  │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐ │ │
 │  │  │设备融合   │→ │MEWS 评分 │→ │趋势分析  │→ │风险分级      │ │ │
@@ -91,9 +85,12 @@
 │  │  │  ┌──────────────────┐  ┌──────────────┐  ┌──────────┐ │ │ │
 │  │  │  │ Kafka: 诊断输入  │  │ Kafka: 告警  │  │InfluxDB  │ │ │ │
 │  │  │  └──────────────────┘  └──────────────┘  └──────────┘ │ │ │
+│  │  │  ┌──────────────┐  ┌──────────┐                        │ │ │
+│  │  │  │ HBase: 体征  │  │HBase:告警│                        │ │ │
+│  │  │  └──────────────┘  └──────────┘                        │ │ │
 │  │  └─────────────────────────────────────────────────────────┘ │ │
-│  │              ▲           ▲                                    │ │
-│  │       消费 Kafka     REST 查询                                │ │
+│  │              ▲           ▲           ▲                        │ │
+│  │       消费 Kafka     REST 查询    HBase 查询                  │ │
 │  └──────────────────────┼─────────────────────────────────────────┘ │
 │                         │                                          │
 ├─────────────────────────┼──────────────────────────────────────────┤
@@ -127,13 +124,13 @@
 |----|------|--------|--------|
 | L1 | 设备模拟器 | C++20 + ASIO | ✅ 负责 |
 | L2 | 数据采集与标准化 | Python 3.12+ asyncio | ✅ 负责 |
-| L3 | 实时计算与异常检测 | Java 17 + Flink 1.19 | ✅ 负责 |
+| L3 | 实时计算与异常检测 | Java 17 + Flink 1.19 | ✅ **已部署运行** |
 | L4 | LLM Agent 智能诊断 | (留给他人) | ❌ 仅定义接口 |
 | L5 | 可视化交互 | (留给他人) | ❌ 仅提供数据出口 |
 
 ### 1.3 核心数据流（一句话）
 
-> **设备(L1) → TCP → 采集(L2) → Kafka → Flink(L3) → Kafka/InfluxDB → LLM Agent(L4)**
+> **设备(L1) → TCP → 采集(L2) → Kafka → Flink(L3) → InfluxDB/HBase/Kafka → LLM Agent(L4)**
 
 ---
 
@@ -415,50 +412,36 @@ data_collector/
 - 消费 `standardized.vitals` Topic，按 `patientId` 对齐多设备数据
 - 时间窗口内融合多来源体征 → 计算 MEWS 评分
 - 趋势分析 + 异常检测 → 风险分级
-- 输出到 Kafka（L4 消费）+ InfluxDB（历史查询）
+- 输出到 Kafka（L4 消费）+ InfluxDB（历史查询）+ HBase（AI 批量读取）
 
 ### 4.2 Job 拓扑
 
 ```
 Kafka Source: standardized.vitals
-  │  (Avro 反序列化为 PatientVitalRecord POJO)
+  │  (JSON 反序列化为 PatientVitalRecord POJO)
   │
   ▼
 KeyBy: patientId
   │
   ▼
-Session Window (gap = 2s)
-  │  将同一患者 2s 内的多设备消息融合
+FlatMap: DeviceFusionFunction (替代 Session Window)
+  │  每个患者独立状态，按到达顺序融合多设备数据
   │
   ▼
-DeviceFusionFunction
-  │  合并同一时间窗口内多个设备的 observations
-  │  输出 PatientSnapshot（患者当前多参数快照）
-  │
-  ├──────────────────────────────────────┐
-  ▼                                      │
-MewsCalculator                           │
-  │  HR + SBP + RR + Temp → MEWS 评分   │
-  ▼                                      │
-TrendAnalyzer                            │
-  │  与历史状态对比 → 变化率 + 趋势方向  │
-  ▼                                      │
-RiskClassifier                           │
-  │  MEWS + Trend → 风险分级             │
-  │                                      │
-  ▼                                      ▼
-┌──────────────────┐  ┌──────────────────┐
-│ Main Output      │  │ Side Output      │
-│ Kafka Sink       │  │ Kafka Sink       │
-│ ai.diagnostic.   │  │ ai.alerts        │
-│ input            │  │ (severity>阈值时) │
-└──────────────────┘  └──────────────────┘
-       │
-       ▼
-┌──────────────────┐
-│ InfluxDB Sink    │
-│ (所有时间点)     │
-└──────────────────┘
+Map: MewsCalculator
+  │  HR + SBP + RR + Temp → MEWS 评分
+  ▼
+┌─────────────────────────────────────────────────────┐
+│ DiagnosticOutputBuilder (KeyedCoProcessFunction)    │
+│  趋势分析 + 基线统计 + 风险分级 + 告警提取          │
+│  内联 TrendAnalyzer, RiskClassifier, AlertExtractor │
+└─────────────────┬───────────────────────────────────┘
+                  │
+       ┌──────────┼──────────┬──────────────┐
+       ▼          ▼          ▼              ▼
+   Diagnostic   InfluxDB   HBase 2.5.4  Kafka: ai.alerts
+   Kafka Sink    Sink        Sink          Sink
+   (L4 消费)   (仪表盘)   (AI 读取)      (告警)
 ```
 
 ### 4.3 核心数据模型（Flink 侧）
@@ -531,13 +514,13 @@ RiskClassifier                           │
 #### ① 多设备融合策略
 
 ```
-输入：同一患者 2s 会话窗口内的所有消息
+输入：同一患者多设备不同频率的消息
       {monitor: [HR, BP, SpO2], ventilator: [RR, TV], temp: [T1]}
 
 融合规则：
-  - 最近值优先：同一参数出现多次，取时间戳最新的
+  - 状态型融合：每个参数维护最新值，新数据到达即时更新
   - 缺值容忍：某些参数缺失不影响评分（如体温 30s 一次，非每秒都有）
-  - 冲突处理：同一参数同一设备出现不同值 → 取有效标记的时间最新值
+  - 冲突处理：同一参数同一设备出现不同值 → 取时间最新的
 
 输出：一个 PatientSnapshot，包含该患者所有已知参数的最新值
 ```
@@ -565,13 +548,9 @@ AVPU: Alert→0, Voice→1, Pain→2, Unresponsive→3 (模拟器暂不实现)
 #### ③ 趋势分析
 
 ```
-短期趋势（5min 滑动窗口）：
-  - 计算均值与当前值的偏差百分比
+短期趋势（最近 N 个周期）：
+  - 计算前两个值与后两个值的均值偏差百分比
   - |偏差|>15% → 标记为 "rapid_change"
-
-中期趋势（30min 滑动窗口）：
-  - 线性回归计算斜率
-  - 持续上升/下降 → 标记趋势方向
 
 长期基线（患者自身基线，累积窗口）：
   - 存储患者各参数的正常范围（移动平均 ± 2σ）
@@ -610,6 +589,8 @@ Flink 的 Checkpoint 机制保证状态容错。
 | 告警事件 | Kafka: `ai.alerts` | AlertEvent JSON | 风险 ≥ WARNING |
 | 时序记录 | InfluxDB: `vitals` measurement | 时序点 | 每次 PatientSnapshot 更新 |
 | 评分记录 | InfluxDB: `mews` measurement | 时序点 | 每次 MEWS 计算 |
+| 体征数据 | HBase: `vitals` 表 | 字符串格式 | 每次 PatientSnapshot 更新 |
+| 告警数据 | HBase: `alerts` 表 | 字符串格式 | 每次告警生成 |
 
 ### 4.7 REST API 查询服务
 
@@ -630,6 +611,20 @@ GET /api/v1/patients/{patientId}/snapshot
 
 GET /api/v1/wards/{wardId}/overview
   → 病区所有患者概览（风险热力图数据源）
+
+── 大屏可视化 ──
+
+GET /api/v1/bigscreen/overview
+  → 大屏聚合数据：全患者体征 + MEWS + 趋势 + 病区统计
+
+WS  /api/v1/bigscreen/ws
+  → WebSocket 实时推送：每 3 秒推送全部患者状态
+
+GET /bigscreen
+  → 大屏 Demo 页面（暗色主题，WebSocket 直连）
+
+GET /test
+  → 8 患者实时体征卡片面板
 ```
 
 ---
@@ -658,32 +653,24 @@ T+2                   Parser: JSON 解析
 T+3                                                       Flink 消费 standardized.vitals
                                                          KeyBy patientId=P0001
 
-T+4                                                       Session Window 等待 2s
-                                                         等待同患者其他设备数据
+T+4                                                       DeviceFusionFunction 融合
+                                                         更新患者快照状态
 
-T+5                                                       Ventilator 数据到达 (RR=16)
-                                                         → 触发窗口计算
-
-T+6                                                       DeviceFusionFunction:
-                                                         HR=72, BP=120/80, RR=16
-                                                         → PatientSnapshot
-
-T+7                                                       MewsCalculator:
+T+5                                                       MewsCalculator:
                                                          HR=72→0分, SBP=120→0分
                                                          RR=16→0分, Temp=36.8→0分
                                                          → MEWS=1 (STABLE)
 
-T+8                                                       TrendAnalyzer:
-                                                         与历史对比 → 趋势稳定
+T+6                                                       DiagnosticOutputBuilder:
+                                                         趋势分析（稳定）
+                                                         风险分级（STABLE）
+                                                         构建 DiagnosticInput
 
-T+9                                                       RiskClassifier:
-                                                         MEWS=1 + 稳定 → STABLE
-                                                         不触发告警
-
-T+10                                                      Kafka Sink: DiagnosticInput
+T+7                                                       Kafka Sink: DiagnosticInput
                                                          InfluxDB Sink: 时序点写入
+                                                         HBase Sink: 字符串写入
 
-T+11                                                                             LLM Agent 消费
+T+8                                                                             LLM Agent 消费
                                                                                 ai.diagnostic.input
                                                                                 → 综合分析
 ```
@@ -840,15 +827,19 @@ Value: JSON
 
 ### 6.4 REST API
 
-**Base URL:** `http://<api-gateway>:8000/api/v1`
+**Base URL:** `http://<api-gateway>:8000`
 
 | 端点 | 方法 | 参数 | 返回 | 说明 |
 |------|------|------|------|------|
-| `/patients/{pid}/vitals` | GET | start, end, limit | 时序数组 | 患者体征历史 |
-| `/patients/{pid}/mews` | GET | start, end, limit | MEWS 时序 | MEWS 评分历史 |
-| `/patients/{pid}/alerts` | GET | start, end, severity | 告警列表 | 告警事件历史 |
-| `/patients/{pid}/snapshot` | GET | — | PatientSnapshot | 患者当前状态 |
-| `/wards/{wardId}/overview` | GET | — | 患者风险列表 | 病区概览（热力图数据源） |
+| `/api/v1/patients/{pid}/vitals` | GET | start, end, limit | 时序数组 | 患者体征历史 |
+| `/api/v1/patients/{pid}/mews` | GET | start, end, limit | MEWS 时序 | MEWS 评分历史 |
+| `/api/v1/patients/{pid}/alerts` | GET | start, end, severity | 告警列表 | 告警事件历史 |
+| `/api/v1/patients/{pid}/snapshot` | GET | — | PatientSnapshot | 患者当前状态 |
+| `/api/v1/wards/{wardId}/overview` | GET | — | 患者风险列表 | 病区概览 |
+| `/api/v1/bigscreen/overview` | GET | — | 全患者聚合 | 大屏数据源 |
+| `/api/v1/bigscreen/ws` | WS | — | 实时推送 | 大屏 WebSocket |
+| `/bigscreen` | GET | — | HTML | 大屏 Demo 页面 |
+| `/test` | GET | — | HTML | 体征卡片面板 |
 
 **统一响应格式：**
 
@@ -885,7 +876,7 @@ Value: JSON
 │                                                            │
 │  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
 │  │ Simulator │  │ Collector│  │ Flink    │  │ API      │   │
-│  │ (C++进程) │  │ (Python) │  │ (Job)    │  │ Gateway  │   │
+│  │ (Python)  │  │ (Python) │  │ (Java)   │  │ Gateway  │   │
 │  └─────┬────┘  └─────┬────┘  └─────┬────┘  └─────┬────┘   │
 │        │              │              │              │        │
 │        └──────────────┼──────────────┼──────────────┘        │
@@ -894,11 +885,11 @@ Value: JSON
 │                 │  Kafka     │ │  InfluxDB  │                │
 │                 │  (Container)│ │  (Container)│               │
 │                 └────────────┘ └────────────┘                │
-│                                                            │
-│  ┌──────────────┐  ┌──────────────┐                         │
-│  │  Redis       │  │  MySQL       │                         │
-│  │  (Container) │  │  (Container) │                         │
-│  └──────────────┘  └──────────────┘                         │
+│                       │                                      │
+│                 ┌─────▼──────┐                                │
+│                 │  HBase     │                                │
+│                 │  (2.5.4)   │                                │
+│                 └────────────┘                                │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -906,15 +897,16 @@ Value: JSON
 
 | 服务 | 镜像 | 端口 | 依赖 |
 |------|------|------|------|
-| simulator | 原生进程（不容器化） | — | 直接连接 collector |
-| collector | python:3.12-slim | 9001(TCP), 8080(健康检查) | Kafka, Redis |
-| flink-jobmanager | flink:1.19-java17 | 8081(Web UI) | Kafka |
-| flink-taskmanager | flink:1.19-java17 | — | Kafka |
-| api-gateway | python:3.12-slim | 8000(REST) | InfluxDB |
-| kafka | confluentinc/cp-kafka:7.6 | 9092 | — |
+| device-simulator | docker-base | — | collector |
+| collector | docker-collector | 9001(TCP) | Kafka |
+| jobmanager | docker-flink-job | 8081(Web UI) | Kafka |
+| taskmanager | flink:1.19-java17 | — | jobmanager |
+| flink-job | docker-flink-job:fixed | — | jobmanager, hbase |
+| api-gateway | docker-api-gateway | 8000(REST) | InfluxDB |
+| kafka | cp-kafka:7.5.0 | 9092 | zookeeper |
 | influxdb | influxdb:2.7 | 8086 | — |
+| hbase | hbase:2.5.4 | 9090(Thrift), 16010(Web) | — |
 | redis | redis:7-alpine | 6379 | — |
-| mysql | mysql:8.0 | 3306 | — |
 
 ### 7.3 最低硬件要求
 
@@ -944,32 +936,40 @@ Value: JSON
 
 **结论：** 保留完整架构的接口抽象（IConnector, IFrameDecoder, IDataParser, IValidator），但只实现 JSON 版本。未来接入真实设备时加实现类即可。
 
-### ADR-3：Flink 使用 Session Window 而非 Tumbling Window
+### ADR-3：DeviceFusion 为何改用 FlatMap 而非 Session Window
 
-| 窗口类型 | 理由 |
+| 方式 | 理由 |
 |---------|------|
-| Tumbling Window | 固定间隔窗口，不同频率设备难以对齐 |
-| **Session Window (gap=2s)** | **选定** — 天然适合不同频率设备的融合，设备发送间隔不固定时仍能正确分组 |
-| Sliding Window | 计算量大，适合需求明确的情况 |
+| Session Window (gap=2s) | 原始设计，但持续数据流导致窗口永不触发 |
+| **FlatMap + ValueState** | **选定** — 状态型融合，每条消息到达即更新，无需等待窗口 |
 
-### ADR-4：为何用 InfluxDB 而非 HBase
+### ADR-4：为何用 InfluxDB + HBase 双存储
 
-| 选项 | 理由 |
-|------|------|
-| HBase | 运维复杂，小学期环境难以搭建 |
-| **InfluxDB** | **选定** — Docker 一键部署，时序查询友好，HTTP API 方便集成 |
+| 存储 | 用途 | 理由 |
+|------|------|------|
+| **InfluxDB** | API 实时查询 + 仪表盘 + 大屏 | 时序查询友好，HTTP API 方便集成 |
+| **HBase** | L4 LLM Agent 批量读取 | 存为字符串格式，AI 团队直接 HBase shell 可读 |
 
 ### ADR-5：患者绑定在 L2 而非 L1
 
 | 位置 | 决策 |
 |------|------|
 | L1 硬编码 | ❌ 不符合"采集层管理绑定"的架构分层 |
-| **L2 PatientBinder** | **选定** — 采集层通过 auth 消息维护 deviceId ↔ patientId 映射，Redis 缓存 |
+| **L2 PatientBinder** | **选定** — 采集层通过 auth 消息维护 deviceId ↔ patientId 映射 |
 | L3 Flink | ❌ 绑定属于元数据管理，不应在计算层解决 |
+
+### ADR-6：Flink 部署修复记录
+
+| 问题 | 原因 | 修复 |
+|------|------|------|
+| 容器启动失败 | flink-submit.sh 是 CRLF 换行 | dos2unix 转换 |
+| HBase 连接拒绝 | ZooKeeper 只绑 127.0.0.1 | 配置 clientPortAddress=0.0.0.0 |
+| TableNotFoundException | HBase 重启后表丢失 | 建表脚本独立执行 |
+| InfluxDB 查询不全 | Flink 按参数分时间戳写入 | last() + group() + pivot 适配查询 |
 
 ---
 
 > **架构设计核心思想：**
 >
-> **L1 模拟真实设备，L2 管道搬运数据，L3 融合计算推理，L4 接口契约清晰。**
+> **L1 模拟真实设备，L2 管道搬运数据，L3 Flink 融合计算推理，L4 接口契约清晰。**
 > **各层职责分明，通过 Kafka 解耦，独立开发独立部署。**

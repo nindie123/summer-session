@@ -15,23 +15,20 @@ summer_all1/
 
 ├── docs/
 │   ├── hbase-design.md            # HBase 表结构设计
-│   ├── layer4-interface-contract.md # L4 接口契约
-│   └── layer1-device-simulator.md # 设备模拟器设计（参考）
+│   └── layer4-interface-contract.md # L4 接口契约
 
 ├── device_simulator/              # L1: C++ 设备模拟器（待编译）
 ├── data_collector/                # L2: Python 数据采集层
-├── flink_computation/             # L3: Java Flink 计算层（待重建jar）
-├── api_gateway/                   # REST API 查询服务
+├── flink_computation/             # L3: Java Flink 计算层（已部署运行）
+├── api_gateway/                   # REST API + 大屏可视化 + 仪表盘
 
 ├── scripts/                       # 核心运行脚本
 │   ├── run_8_patients.py          # ★ 8 患者动态数据模拟器
-│   ├── bridge.py                  # ★ Kafka→InfluxDB+HBase 桥接器
-│   ├── test_dashboard.html        # 趋势折线图仪表盘
+│   ├── bridge_simple.py           # （备用）Kafka→InfluxDB+HBase 桥接器
+│   ├── bigscreen_demo.html        # ★ 大屏可视化 Demo（WebSocket 实时推送）
+│   ├── test_dashboard.html        # ★ 实时体征卡片仪表盘
 │   ├── read_hbase.py              # HBase 数据可读查看
-│   ├── read_hbase.bat             # HBase 查看（双击）
-│   ├── run_50_patients.py         # 50 患者模拟器（旧）
-│   ├── start.bat / stop.bat       # 一键启停
-│   └── submit-flink.ps1           # Flink 提交脚本
+│   └── read_hbase.bat             # HBase 查看（双击）
 
 ├── docker/
 │   ├── docker-compose.yml         # 全部服务编排
@@ -39,7 +36,8 @@ summer_all1/
 │   ├── api-gateway.Dockerfile
 │   ├── simulator.Dockerfile
 │   ├── flink.Dockerfile
-│   └── hbase.Dockerfile           # HBase 2.5.6 构建（待网络恢复）
+│   ├── flink-fix.Dockerfile       # Flink 修复镜像
+│   └── hbase.Dockerfile
 
 └── .claude/                       # Claude Code 项目配置
 ```
@@ -161,7 +159,7 @@ python src/main.py --config config.yaml
 
 ---
 
-## L3: flink_computation/ — Java Flink 实时计算
+## L3: flink_computation/ — Java Flink 实时计算（已部署运行）
 
 ```
 flink_computation/
@@ -176,8 +174,8 @@ flink_computation/
 │   │   │   │   ├── VitalSignDeserializer.java   # Kafka 反序列化
 │   │   │   │   ├── DeviceFusionFunction.java     # 多设备融合
 │   │   │   │   ├── MewsCalculator.java           # MEWS 评分
-│   │   │   │   ├── TrendAnalyzer.java            # 趋势分析
-│   │   │   │   ├── RiskClassifier.java           # 风险分级
+│   │   │   │   ├── TrendAnalyzer.java            # 趋势分析（未使用）
+│   │   │   │   ├── RiskClassifier.java           # 风险分级（未使用）
 │   │   │   │   └── AlertDeduplicator.java        # 告警去重
 │   │   │   │
 │   │   │   ├── model/                # Java POJO 模型
@@ -191,7 +189,8 @@ flink_computation/
 │   │   │   └── sink/                 # 输出 Sink
 │   │   │       ├── DiagnosticInputKafkaSink.java
 │   │   │       ├── AlertEventKafkaSink.java
-│   │   │       └── InfluxDbSink.java
+│   │   │       ├── InfluxDbSink.java
+│   │   │       └── HBaseSink.java
 │   │   │
 │   │   └── resources/
 │   │       ├── application.properties # Flink 配置
@@ -212,14 +211,19 @@ flink_computation/
 ```bash
 cd flink_computation
 mvn clean package -DskipTests
-# 提交到 Flink 集群
-flink run -c com.monitor.job.VitalSignProcessingJob \
-  target/flink-computation-1.0.jar
+# 构建 Docker 镜像
+docker build -t docker-flink-job:latest -f docker/flink.Dockerfile .
+# 提交作业（docker-compose 自动执行）
+docker compose up -d flink-job
 ```
+
+**注意：** 实际部署使用 `docker-flink-job:fixed` 镜像（基于 `docker-flink-job:latest` 修复 CRLF 换行问题）。
+
+**当前状态：** ✅ 已部署运行，全部算子 RUNNING。
 
 ---
 
-## L3附属: api_gateway/ — Python REST 查询服务
+## api_gateway/ — Python REST 查询服务 + 大屏可视化
 
 ```
 api_gateway/
@@ -232,7 +236,8 @@ api_gateway/
 │   │   ├── vitals.py                 # 体征查询
 │   │   ├── mews.py                   # MEWS 查询
 │   │   ├── alerts.py                 # 告警查询
-│   │   └── wards.py                  # 病区概览
+│   │   ├── wards.py                  # 病区概览
+│   │   └── bigscreen.py              # ★ 大屏可视化接口
 │   ├── clients/                      # 数据源客户端
 │   │   ├── __init__.py
 │   │   └── influx_client.py          # InfluxDB 查询客户端
@@ -242,6 +247,15 @@ api_gateway/
 ├── tests/
 └── README.md
 ```
+
+### 大屏可视化
+
+| 端点 | 说明 |
+|------|------|
+| `GET /api/v1/bigscreen/overview` | REST 聚合：全部患者体征 + MEWS + 趋势 |
+| `WS /api/v1/bigscreen/ws` | WebSocket 实时推送（3s 广播） |
+| `GET /bigscreen` | 暗色主题大屏 Demo 页面 |
+| `GET /test` | 8 患者体征卡片面板 |
 
 ### 运行方式
 
@@ -258,9 +272,13 @@ uvicorn src.main:app --host 0.0.0.0 --port 8000
 ```
 docker/
 ├── docker-compose.yml                # 主编排文件
-├── docker-compose.kafka.yml          # Kafka + Zookeeper
 ├── collector.Dockerfile              # 采集层镜像
 ├── api-gateway.Dockerfile            # API 网关镜像
+├── simulator.Dockerfile              # 模拟器镜像
+├── flink.Dockerfile                  # Flink + Maven 构建镜像
+├── flink-fix.Dockerfile              # Flink 修复镜像（修正 CRLF 换行）
+├── hbase.Dockerfile                  # HBase 构建镜像
+├── flink-submit.sh                   # Flink 作业提交脚本
 └── .env                              # 环境变量
 ```
 
@@ -270,10 +288,14 @@ docker/
 
 ```
 scripts/
-├── start-all.sh                      # 启动全部服务
-├── stop-all.sh                       # 停止全部服务
-├── seed-devices.sh                   # 生成模拟器配置
-└── generate-test-data.sh             # 生成测试数据
+├── run_8_patients.py                 # ★ 8 患者动态数据模拟器（主力）
+├── bridge_simple.py                  # （备用）桥接器 Kafka→InfluxDB+HBase
+├── bridge.py                         # （备用）旧版桥接器
+├── bigscreen_demo.html               # ★ 大屏可视化 Demo 页面
+├── test_dashboard.html               # ★ 体征卡片仪表盘
+├── read_hbase.py                     # HBase 数据查看
+├── read_hbase.bat                    # HBase 查看（双击运行）
+└── run_50_patients.py                # 50 患者模拟器（旧）
 ```
 
 ---
@@ -283,7 +305,7 @@ scripts/
 | 模块 | 语言 | 构建系统 | 入口文件 | 端口 |
 |------|------|---------|---------|------|
 | `device_simulator/` | C++20 | CMake | `src/main.cpp` | 无（连接 collector:9001） |
-| `data_collector/` | Python 3.12+ | pyproject.toml | `src/main.py` | 9001(TCP), 8080(HTTP) |
+| `data_collector/` | Python 3.12+ | pyproject.toml | `src/main.py` | 9001(TCP) |
 | `flink_computation/` | Java 17 | Maven | `src/.../VitalSignProcessingJob.java` | 无（Flink 框架分配） |
 | `api_gateway/` | Python 3.12+ | pyproject.toml | `src/main.py` | 8000(HTTP) |
 
