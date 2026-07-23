@@ -1,5 +1,6 @@
 """InfluxDB 查询客户端。"""
 
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Any, Optional
 
@@ -52,15 +53,17 @@ class InfluxQueryClient:
             params_quoted = [f'"{p}"' for p in parameters]
             param_filter = f' and parameter =~ /({"|".join(params_quoted)})/'
 
+        # 使用 last() 获取每个参数的最新值，然后用 pivot 合并为一行
+        # 适配 Flink 将每个体征写入不同行的格式
         query = f'''
         from(bucket: "vitals")
             |> range(start: {start_str}, stop: {end_str})
             |> filter(fn: (r) => r["_measurement"] == "vitals")
             |> filter(fn: (r) => r["patientId"] == "{patient_id}")
             {param_filter}
-            |> pivot(rowKey: ["_time"], columnKey: ["parameter"], valueColumn: "_value")
-            |> sort(desc: true, columns: ["_time"])
-            |> limit(n: {limit})
+            |> last()
+            |> group(columns: ["patientId"])
+            |> pivot(rowKey: ["patientId"], columnKey: ["parameter"], valueColumn: "_value")
         '''
 
         tables = self._query_api.query(query, org=self._org)
@@ -68,9 +71,15 @@ class InfluxQueryClient:
         points = []
         for table in tables:
             for record in table.records:
+                try:
+                    ts = record.get_time()
+                except KeyError:
+                    ts = None
+                if ts is None:
+                    ts = datetime.now(timezone.utc)
                 point = {
-                    "timestamp": record.get_time().strftime("%Y-%m-%dT%H:%M:%S.") +
-                                f"{record.get_time().microsecond // 1000:03d}Z",
+                    "timestamp": ts.strftime("%Y-%m-%dT%H:%M:%S.") +
+                                f"{ts.microsecond // 1000:03d}Z",
                 }
                 # 提取所有参数列
                 for key, value in record.values.items():
@@ -100,6 +109,7 @@ class InfluxQueryClient:
             |> filter(fn: (r) => r["_measurement"] == "mews")
             |> filter(fn: (r) => r["patientId"] == "{patient_id}")
             |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+            |> group()
             |> sort(desc: true, columns: ["_time"])
             |> limit(n: {limit})
         '''
@@ -121,6 +131,31 @@ class InfluxQueryClient:
                 })
 
         return points
+
+    async def async_query_vitals(
+        self,
+        patient_id: str,
+        parameters: Optional[list[str]] = None,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """异步查询体征时序数据（不阻塞事件循环）。"""
+        return await asyncio.to_thread(
+            self.query_vitals, patient_id, parameters, start, end, limit
+        )
+
+    async def async_query_mews(
+        self,
+        patient_id: str,
+        start: Optional[str] = None,
+        end: Optional[str] = None,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        """异步查询 MEWS 评分历史（不阻塞事件循环）。"""
+        return await asyncio.to_thread(
+            self.query_mews, patient_id, start, end, limit
+        )
 
     def close(self) -> None:
         """关闭客户端。"""

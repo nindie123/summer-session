@@ -1,0 +1,103 @@
+<!-- 大屏可视化 Demo — WebSocket 实时推送 -->
+<!-- 直接浏览器打开即可，不需要服务器 -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>ICU 大屏监控 Demo</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e17;color:#e0e6ef;font-family:Arial,sans-serif;overflow:hidden}
+.top{display:flex;justify-content:space-between;align-items:center;padding:16px 24px 8px}
+.top h1{font-size:20px;font-weight:bold;background:linear-gradient(90deg,#4fc3f7,#7c4dff);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.top .info{font-size:12px;color:#6b7b8d}
+.top .info span{margin-left:16px}
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;padding:8px 24px}
+.card{background:linear-gradient(135deg,#141e30,#1a2a40);border-radius:10px;padding:14px;border:1px solid #1e3456}
+.card.warning{border-color:#f57c00;box-shadow:0 0 20px rgba(245,124,0,0.15)}
+.card.critical{border-color:#d32f2f;box-shadow:0 0 20px rgba(211,47,47,0.25)}
+.header{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.pid{font-size:15px;font-weight:bold;color:#e0e6ef}
+.mews{font-size:18px;font-weight:bold}
+.mews.low{color:#4caf50}.mews.mid{color:#ff9800}.mews.high{color:#f44336}
+.tag{font-size:10px;padding:2px 8px;border-radius:6px}
+.tag.STABLE{background:#1b3a1b;color:#4caf50;border:1px solid #2e7d32}
+.tag.WARNING{background:#3a2a1b;color:#ff9800;border:1px solid #e65100}
+.tag.CRITICAL{background:#3a1b1b;color:#f44336;border:1px solid #c62828}
+.tag.EMERGENCY{background:#4a1b1b;color:#ff5252;border:1px solid #d50000}
+.row{display:flex;gap:8px;margin-top:8px}
+.item{flex:1;text-align:center;padding:4px 2px;border-radius:4px;background:rgba(255,255,255,0.03)}
+.item .v{font-size:16px;font-weight:bold;display:block}
+.item .l{font-size:9px;color:#6b7b8d;display:block;margin-top:2px}
+.summary{display:flex;gap:24px;padding:8px 24px;font-size:13px;color:#6b7b8d}
+.summary b{font-size:18px;margin-right:4px}
+.summary .g b{color:#4caf50}.summary .o b{color:#ff9800}.summary .r b{color:#f44336}
+@media(max-width:1000px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>ICU 病区实时监控大屏</h1>
+  <div class="info"><span>⚡ 实时推送</span><span id="status">连接中...</span><span id="time"></span></div>
+</div>
+<div class="summary" id="summary">加载中...</div>
+<div class="grid" id="grid"></div>
+
+<script>
+const COLORS = {hr:"#4fc3f7",sbp:"#ff9800",dbp:"#ffa726",spo2:"#4caf50",rr:"#ce93d8",temp:"#ef5350"};
+const LABELS = {hr:"HR",sbp:"SBP",dbp:"DBP",spo2:"SpO2",rr:"RR",temp:"TEMP"};
+const UNITS = {hr:"/min",sbp:"mmHg",dbp:"mmHg",spo2:"%",rr:"/min",temp:"°C"};
+
+let ws = null;
+
+function connect() {
+  ws = new WebSocket("ws://localhost:8000/api/v1/bigscreen/ws");
+  ws.onopen = () => document.getElementById("status").textContent = "🟢 已连接";
+  ws.onclose = () => {
+    document.getElementById("status").textContent = "🔴 断开，3秒后重连...";
+    setTimeout(connect, 3000);
+  };
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    render(data);
+  };
+}
+
+function render(data) {
+  document.getElementById("time").textContent = data.t;
+  const s = data.summary || {};
+  document.getElementById("summary").innerHTML = `
+    <span>患者 ${data.patients.length}人</span>
+    <span class="g">🟢 稳定 <b>${s.STABLE||0}</b></span>
+    <span class="o">🟡 预警 <b>${s.WARNING||0}</b></span>
+    <span class="r">🔴 危急 <b>${s.CRITICAL||0}</b></span>
+    <span class="r">💀 濒死 <b>${s.EMERGENCY||0}</b></span>
+  `;
+
+  let html = "";
+  for (const p of data.patients) {
+    const cls = p.risk==="CRITICAL"||p.risk==="EMERGENCY"?"critical":p.risk==="WARNING"?"warning":"";
+    const ms = p.mews>=6?"high":p.mews>=4?"mid":"low";
+    const v = p.v || {};
+    html += `<div class="card ${cls}">
+      <div class="header">
+        <span class="pid">${p.id}</span>
+        <span><span class="mews ${ms}">${p.mews}</span> <span class="tag ${p.risk}">${p.risk}</span></span>
+      </div>
+      <div class="row">
+        <div class="item"><span class="v" style="color:${COLORS.hr}">${v.hr??'--'}</span><span class="l">HR</span></div>
+        <div class="item"><span class="v" style="color:${COLORS.sbp}">${v.sbp??'--'}</span><span class="l">SBP</span></div>
+        <div class="item"><span class="v" style="color:${COLORS.spo2}">${v.spo2??'--'}</span><span class="l">SpO2</span></div>
+        <div class="item"><span class="v" style="color:${COLORS.rr}">${v.rr??'--'}</span><span class="l">RR</span></div>
+        <div class="item"><span class="v" style="color:${COLORS.temp}">${v.temp??'--'}</span><span class="l">TEMP</span></div>
+      </div>
+    </div>`;
+  }
+  document.getElementById("grid").innerHTML = html;
+}
+
+connect();
+</script>
+</body>
+</html>

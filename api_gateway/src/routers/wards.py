@@ -1,5 +1,6 @@
 """病区概览路由 — 动态从 InfluxDB 发现患者。"""
 
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
@@ -18,44 +19,48 @@ async def get_ward_overview(ward_id: str):
     now = datetime.now(timezone.utc)
     lookback = now - timedelta(hours=2)
 
-    # 查询过去2小时内有哪些患者有数据
-    query = f'''
-    from(bucket: "vitals")
-        |> range(start: {lookback.isoformat()}, stop: {now.isoformat()})
-        |> filter(fn: (r) => r["_measurement"] == "mews")
-        |> group(columns: ["patientId"])
-        |> distinct(column: "patientId")
-    '''
-    tables = influx._query_api.query(query, org=influx._org)
-    patient_ids: set[str] = set()
-    for table in tables:
-        for record in table.records:
-            pid = record.values.get("patientId")
-            if pid:
-                patient_ids.add(str(pid))
+    # 异步发现患者
+    async def discover():
+        def _discover():
+            ids: set[str] = set()
+            q1 = f'''
+            from(bucket: "vitals")
+                |> range(start: {lookback.isoformat()}, stop: {now.isoformat()})
+                |> filter(fn: (r) => r["_measurement"] == "mews")
+                |> group(columns: ["patientId"])
+                |> distinct(column: "patientId")
+            '''
+            try:
+                for t in influx._query_api.query(q1, org=influx._org):
+                    for r in t.records:
+                        pid = r.values.get("patientId")
+                        if pid: ids.add(str(pid))
+            except: pass
+            if not ids:
+                q2 = f'''
+                from(bucket: "vitals")
+                    |> range(start: {lookback.isoformat()}, stop: {now.isoformat()})
+                    |> filter(fn: (r) => r["_measurement"] == "vitals")
+                    |> group(columns: ["patientId"])
+                    |> distinct(column: "patientId")
+                '''
+                try:
+                    for t in influx._query_api.query(q2, org=influx._org):
+                        for r in t.records:
+                            pid = r.values.get("patientId")
+                            if pid: ids.add(str(pid))
+                except: pass
+            return ids
+        return await asyncio.to_thread(_discover)
 
-    if not patient_ids:
-        # 回退：直接查询 vitals 表
-        query2 = f'''
-        from(bucket: "vitals")
-            |> range(start: {lookback.isoformat()}, stop: {now.isoformat()})
-            |> filter(fn: (r) => r["_measurement"] == "vitals")
-            |> group(columns: ["patientId"])
-            |> distinct(column: "patientId")
-        '''
-        tables2 = influx._query_api.query(query2, org=influx._org)
-        for table in tables2:
-            for record in table.records:
-                pid = record.values.get("patientId")
-                if pid:
-                    patient_ids.add(str(pid))
+    patient_ids = await discover()
 
     patients_data: list[dict[str, Any]] = []
     risk_counts: dict[str, int] = {"STABLE": 0, "WARNING": 0, "CRITICAL": 0, "EMERGENCY": 0}
 
     for pid in sorted(patient_ids):
-        # 查最新 MEWS
-        mews_points = influx.query_mews(
+        # 查最新 MEWS（异步）
+        mews_points = await influx.async_query_mews(
             pid,
             start=lookback.isoformat(),
             end=now.isoformat(),
@@ -67,8 +72,8 @@ async def get_ward_overview(ward_id: str):
             risk_level = latest.get("riskLevel", "STABLE")
             risk_counts[risk_level] = risk_counts.get(risk_level, 0) + 1
 
-            # 查最新 vitals
-            vitals_points = influx.query_vitals(
+            # 查最新 vitals（异步）
+            vitals_points = await influx.async_query_vitals(
                 pid,
                 start=lookback.isoformat(),
                 end=now.isoformat(),

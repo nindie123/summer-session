@@ -226,13 +226,14 @@ services:
       - jobmanager
     restart: unless-stopped
 
+  # ── Flink 作业提交（使用修复后镜像，不重新构建） ──
   flink-job:
-    build:
-      context: ..
-      dockerfile: docker/flink.Dockerfile
+    image: docker-flink-job:fixed
     depends_on:
-      - jobmanager
-      - hbase
+      jobmanager:
+        condition: service_started
+      hbase:
+        condition: service_started
     environment:
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       INFLUXDB_URL: http://influxdb:8086

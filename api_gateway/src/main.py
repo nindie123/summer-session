@@ -3,7 +3,7 @@
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, FileResponse
-from src.routers import vitals, mews, alerts, wards
+from src.routers import vitals, mews, alerts, wards, bigscreen
 import os
 
 app = FastAPI(
@@ -26,6 +26,7 @@ app.include_router(vitals.router)
 app.include_router(mews.router)
 app.include_router(alerts.router)
 app.include_router(wards.router)
+app.include_router(bigscreen.router)
 
 
 @app.get("/health")
@@ -46,6 +47,8 @@ async def root():
             "GET /api/v1/patients/{patientId}/alerts",
             "GET /api/v1/patients/{patientId}/snapshot",
             "GET /api/v1/wards/{wardId}/overview",
+            "GET /api/v1/bigscreen/overview  (大屏聚合数据)",
+            "WS  /api/v1/bigscreen/ws  (大屏实时推送)",
             "GET /test  (8患者测试面板)",
         ],
     }
